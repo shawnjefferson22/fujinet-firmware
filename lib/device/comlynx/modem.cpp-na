@@ -1263,9 +1263,10 @@ void lynxModem::shutdown()
 /*
   Process command
 */
-void lynxModem::comlynx_process()
+void lynxModem::comlynx_process(const FujiLynxPacket &packet)
+
 {
+    (void)packet; // currently unused
 
 }
-
 #endif /* BUILD_LYNX */

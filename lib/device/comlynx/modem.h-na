@@ -183,7 +183,7 @@ private:
     bool answered=false;
 
     //void comlynx_control_status() override;
-    void comlynx_process() override;
+    void comlynx_process(const FujiLynxPacket &packet) override;
 
     void crx_toggle(bool toggle);                // CRX active/inactive?
 

@@ -53,6 +53,7 @@ public:
     void comlynx_disable_netstream(); // stop netstream
     void comlynx_handle_netstream();  // Handle incoming & outgoing data for netstream
 
+	// Redeye Comlynx protocol handling for original games
     bool redeye_mode = true;        // redeye UDP stream mode
     GAME_T game;                    // redeye game info and state
 
@@ -64,8 +65,6 @@ public:
     void redeye_recalculate_checksum(uint8_t *buf);     // recalculate redeye packet checksum (for remapped game_id)
     void redeye_remap_game_id(uint8_t *buf, uint16_t remap);          // remap game_id to provide a unique game_id
     uint8_t redeye_find_game(uint16_t gid);
-    bool redeye_valid_sequence_data(uint8_t seq, uint8_t player_mask);
-    bool redeye_check_data_recv();
     bool redeye_validate_packet(uint8_t *buf, uint8_t bufsize);
     bool redeye_check_logon_state();
 
@@ -73,6 +72,11 @@ public:
     void redeye_process_game_packet_from_net(uint8_t *buf);
     void redeye_process_logon_packet_from_lynx(uint8_t *buf);
     void redeye_process_game_packet_from_lynx(uint8_t *buf);
+
+	void redeye_send_logon_to_lynx(uint8_t pnum);
+	uint8_t redeye_active_players_mask();
+	void redeye_send_logon_packets();
+	void redeye_check_for_inactive_players();
 
     void redeye_change_baud(int baud);
 };
