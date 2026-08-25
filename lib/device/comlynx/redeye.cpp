@@ -68,6 +68,7 @@ GAME_LIST_T game_list[] = {
 
 void lynxNetStream::process_redeye_net_packet(uint8_t *buf, size_t len)
 {
+	// bad packet length?
 	if ((len <= 2) || (len >= 10))
 		return;
 
@@ -154,20 +155,20 @@ void lynxNetStream::comlynx_handle_redeye_netstream() {
 	// serial collect loop, waiting until the serial has been idle for IDLE_TIME (2-3 char time at 62500 baud)
 	buf_stream_index = 0;
  	if (SYSTEM_BUS.available() > 0) {											// is there something availabe in FIFO
- 		uint64_t last_rx = GET_TIMESTAMP();
+		uint64_t last_rx = GET_TIMESTAMP();
  		while (true) {
 			while (SYSTEM_BUS.available() > 0) { 								// got all data in FIFO
 				if (buf_stream_index >= NETSTREAM_BUFFER_SIZE)					// too much data for buffer, just exit (should never hit this)
 					break;
 
 				buf_stream[buf_stream_index++] = SYSTEM_BUS.read();				// get byte from FIFO
-				last_rx = GET_TIMESTAMP();									// reset idle timer
+				last_rx = GET_TIMESTAMP();										// reset idle timer
  			}
 
 			if (buf_stream_index >= NETSTREAM_BUFFER_SIZE)						// too much data for buffer, just exit (should never hit this)
 				break;
 
-			if ((GET_TIMESTAMP() - last_rx) > COMLYNX_IDLE_TIME)			// data has paused for 2-3 bytes at 62500 baud, end of packet
+			if ((GET_TIMESTAMP() - last_rx) > COMLYNX_IDLE_TIME)				// data has paused for 2-3 bytes at 62500 baud, end of packet
 				break;
  		}
  	}
@@ -185,9 +186,9 @@ void lynxNetStream::comlynx_handle_redeye_netstream() {
 			continue;
 		}
 		else
-			packetSize = buf_stream[index]+2;				// get the redeye packet size (this is 2 less than what the packet payload is)
+			packetSize = buf_stream[index]+2;				// get the redeye packet size (this is 2 more than what the packet payload is)
 
- 		#ifdef DEBUG_NETSTREAM 
+ 		#ifdef DEBUG_NETSTREAM
 		Debug_print("Netstream Redeye FROM LYNX: ");
  		util_dump_bytes(&buf_stream[index], packetSize);
  		#endif
@@ -198,11 +199,6 @@ void lynxNetStream::comlynx_handle_redeye_netstream() {
 				redeye_process_logon_packet_from_lynx(&buf_stream[index]);
  			else {
  				redeye_process_game_packet_from_lynx(&buf_stream[index]);
-
-				// Send to network
-				//netStream.beginPacket(netstream_host_ip, netstream_port); // remote IP and port
-				//netStream.write(&buf_stream[index], packetSize);
-				//netStream.endPacket();
 			}
  		}
 
@@ -338,33 +334,6 @@ uint8_t lynxNetStream::redeye_find_game(uint16_t gid)
 }
 
 
-/* valid sequence data
- *
- * Check that we have valid data for the players requested (we may not immediately)
- */
-bool lynxNetStream::redeye_valid_sequence_data(uint8_t seq, uint8_t player_mask)
-{
-	uint8_t plr;
-
-
-	// iterate through player mask
-	plr = 0;
-	while (player_mask) {
-		if ((player_mask & 0x01) && (plr < game.num_players)) {
-			if (game.state.seq_plr_data[seq][plr][0] == 0) {
-				Debug_printf("NETSTREAM %04X %s --> REQUEST Master resend request seq %d, player mask %08b - valid_sequence_data check failed\n", game.game_id, *game.name, seq, player_mask);
-				return false;
-			}
-  		}
-
-   		player_mask = player_mask >> 1;		// next bit in mask
-   		plr++;								// increment player #
-	}
-
-  return(true);
-}
-
-
 /* redeye_process_logon_packet_from_net
  *
  *
@@ -372,7 +341,7 @@ bool lynxNetStream::redeye_valid_sequence_data(uint8_t seq, uint8_t player_mask)
  */
 void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 {
-	uint8_t size, msg, plrs, countdown;
+	uint8_t size, msg, plrs, countdown, pnum;
 	uint16_t gid;
 
 
@@ -383,7 +352,7 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 	// extract info from packet
 	size = buf[0];
 	msg = buf[1];
-	countdown = buf[2];
+	countdown = pnum = buf[2];					// could be pnum or countdown
 	plrs = std::popcount(buf[3]);
 	gid = (buf[4]+(buf[5]<<8));
 
@@ -394,14 +363,33 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 	// process logon message
 	switch(msg) {
 		case 0:			// logon annouce packet
-			if (game.num_players != plrs) {
-				Debug_printf("NETSTREAM IN redeye game %04X %s --> Logon new player %d\n", game.game_id, *game.name, countdown);
+			// track logon state
+			game.logon_state.player_present[pnum] = 1;
+			game.logon_state.cached_mask[pnum] = plrs;
+			game.logon_state.logon_rx_timer[pnum] = GET_TIMESTAMP();
+
+			// collision with my player number? Need to relay to lynx for player collision handling
+			if (pnum == game.my_player_num) {
+				if (GET_TIMESTAMP() - game.logon_state.collision_timer < COLLISION_BACKOFF) {
+					Debug_printf("REDEYE (net)  %04X %s --> Logon collision with my player number %d, but backoff timer not expired\n", game.game_id, *game.name, pnum);
+					return;
+				}
+
+				Debug_printf("REDEYE (net)  %04X %s --> Logon collision with my player number %d\n", game.game_id, *game.name, pnum);
+				game.logon_state.collision_timer = GET_TIMESTAMP();
+				break;		// relay logon packet to lynx for collision handling
+			}
+			
+			if (game.num_players < plrs) {
+				Debug_printf("REDEYE (net)  %04X %s --> Logon new player %d, players:%d num_players:%d\n", game.game_id, *game.name, pnum, plrs, game.num_players);
 				game.num_players = plrs;
 			}
+
+			return;			// don't relay logon packet, Fujinet will send logon packets
 			break;
 
 		case 2:
-			Debug_printf("NETSTREAM IN redeye game %04X %s --> Game starting in %d\n", game.game_id, *game.name, countdown);
+			Debug_printf("REDEYE (net)  %04X %s --> Game starting in %d\n", game.game_id, *game.name, countdown);
 
             if (game.state.logon_timer == 0)
 				game.state.logon_timer = GET_TIMESTAMP();
@@ -416,7 +404,8 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
     // Send to Lynx UART
     _comlynx_bus->wait_for_idle();
     SYSTEM_BUS.write(buf, size+2);
-    SYSTEM_BUS.read(buf, size+2); 		// Trash what we just sent over serial
+    //if (!SYSTEM_BUS.isBoIP())
+        SYSTEM_BUS.read(buf, size+2); 		// discard physical ComLynx UART echo
 }
 
 
@@ -446,65 +435,31 @@ void lynxNetStream::redeye_process_game_packet_from_net(uint8_t *buf)
 		case 0:		// looks like we're back in logon, someone pressed restart?
 			if (buf[0] == 5) {
 				redeye_reset_game();
-				Debug_printf("NETSTREAM IN redeye %04X %s --> re-entering logon mode\n", game.game_id, *game.name);
+				Debug_printf("REDEYE (net)  %04X %s --> re-entering logon mode\n", game.game_id, *game.name);
 				return;
 			}
 		break;
 
 		case 3: 	// data packet
-			//game.state.plr_data_recv[seq][plr] = 1;
-			//memcpy(game.state.seq_plr_data[seq][plr], buf, size);
-			Debug_printf("NETSTREAM IN redeye %04X %s --> DATA player %d data for seq %d - header:%02X, data size:%d\n", game.game_id, *game.name, plr, seq, buf[1], size);
-
-			// Deal with sequence switch, all data received and we see a new seq #?
-			/*if (redeye_check_data_recv()) {
-				for (uint8_t i=0; i<game.num_players; i++) {
-					// clear player data received status for current sequence
-					game.state.plr_data_recv[0][i] = 0;
-					game.state.plr_data_recv[1][i] = 0;
-				}
-				Debug_printf("NETSTREAM %04X %s --> SEQ full sequence starting\n", game.game_id, *game.name);
-			}*/
+			Debug_printf("REDEYE (net)  %04X %s --> DATA player %d data for seq %d - header:%02X, data size:%d\n", game.game_id, *game.name, plr, seq, buf[1], size);
 			break;
 
 		case 4:		// SendData Req
-			// is this request for us?
-			//if (plr != game.my_player_num)
-			//	return;
-
-			Debug_printf("NETSTREAM IN redeye %04X %s --> REQUEST player %d data for seq %d, header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
-
-			// do we have the data?
-			/*if (game.state.plr_data_recv[seq][plr]) {
-				Debug_printf("NETSTREAM redeye %04X %s --> REQUEST player %d data for seq %d, fujinet has it - header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
-
-			    // Send to Lynx UART
-			    //_comlynx_bus->wait_for_idle();
-			    //SYSTEM_BUS.write(game.state.seq_plr_data[seq][plr], game.state.seq_plr_data[seq][plr][0]+2);
-    			//SYSTEM_BUS.read(buf_net, game.state.seq_plr_data[seq][plr][0]+2); 		// Trash what we just sent over serial
-				//return;
-			}
-			else {
-				Debug_printf("NETSTREAM redeye %04X %s --> REQUEST player %d data for seq %d, fujinet does not have it - header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
-			}*/
+			Debug_printf("REDEYE (net)  %04X %s --> REQUEST player %d data for seq %d, header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
 			break;
 
 		case 5:		// Master resend req
 			// if I'm not master, just ignore
 			if (game.my_player_num != 0)
 				return;
-
-			//if (redeye_valid_sequence_data(seq, buf[2])) {				// fujinet can send if we have valid data (should we just pass through to Lynx?)
-				//redeye_master_resend_data_to_net(seq, buf[2]);
-				//return;
-			//}
 			break;
 	}
 
     // Send to Lynx UART
     _comlynx_bus->wait_for_idle();
     SYSTEM_BUS.write(buf, size);
-    SYSTEM_BUS.read(buf, size); 		// Trash what we just sent over serial
+    //if (!SYSTEM_BUS.isBoIP())
+        SYSTEM_BUS.read(buf, size); 		// discard physical ComLynx UART echo
 }
 
 
@@ -515,7 +470,7 @@ void lynxNetStream::redeye_process_game_packet_from_net(uint8_t *buf)
  */
 void lynxNetStream::redeye_process_logon_packet_from_lynx(uint8_t *buf)
 {
-	uint8_t size, msg, plrs, countdown;
+	uint8_t size, msg, plrs, countdown, pnum;
 	uint16_t gid;
 
 
@@ -526,7 +481,7 @@ void lynxNetStream::redeye_process_logon_packet_from_lynx(uint8_t *buf)
 	// extract info from packet
 	size = buf[0];
 	msg = buf[1];
-	countdown = buf[2];
+	countdown = pnum = buf[2];
 	plrs = std::popcount(buf[3]);
 	gid = (buf[4]+(buf[5]<<8));
 
@@ -536,34 +491,41 @@ void lynxNetStream::redeye_process_logon_packet_from_lynx(uint8_t *buf)
 	// process logon message
 	switch(msg) {
 		case 0:			// logon annouce packet
-			// Set game ID and name
+			// Set game ID and name if haven't seen yet
 			if (gid != game.game_id) {
 				game.game_id = gid;
                 uint8_t i = redeye_find_game(game.game_id);
 				if (i == 255) {
-					Debug_printf("NETSTREAM OUT redeye could find game %04X in game list\n", game.game_id);
+					Debug_printf("REDEYE couldn't find game %04X in game list\n", game.game_id);
 					return;
 				}
 
 				game.max_players = game_list[i].max_players;
 				game.name = &game_list[i].name;
                 game.num_players = 1;
-				Debug_printf("NETSTREAM OUT redeye new game %04X %s\n", game.game_id, *game.name);
+				Debug_printf("REDEYE new game %04X %s\n", game.game_id, *game.name);
 			}
 
 			// Set my player number
-			game.my_player_num = countdown;
-			Debug_printf("NETSTREAM OUT redeye %04X %s ---> My player number: %d\n", game.game_id, *game.name, countdown);
+			if (pnum != game.my_player_num) {
+				game.my_player_num = pnum;
+				Debug_printf("REDEYE (lynx) %04X %s ---> My player number: %d\n", game.game_id, *game.name, pnum);
+			}
 
 			// Set number of players
-			if (game.num_players != plrs) {
-				Debug_printf("NETSTREAM OUT redeye %04X %s --> Logon new player %d\n", game.game_id, *game.name, countdown);
+			if (game.num_players < plrs) {
+				Debug_printf("REDEYE (lynx) %04X %s --> Logon new player %d, plrs: %d, num_players: %d\n", game.game_id, *game.name, pnum, plrs, game.num_players);
 				game.num_players = plrs;
 			}
+
+			// track logon state
+			game.logon_state.player_present[pnum] = 1;
+			game.logon_state.cached_mask[pnum] = plrs;
+			game.logon_state.logon_rx_timer[pnum] = GET_TIMESTAMP();
 			break;
 
 		case 2:
-			Debug_printf("NETSTREAM OUT redeye %04X %s --> Game starting in %d\n", game.game_id, *game.name, countdown);
+			Debug_printf("REDEYE (lynx) %04X %s --> Game starting in %d\n", game.game_id, *game.name, countdown);
 
             if (game.state.logon_timer == 0)
 				game.state.logon_timer = GET_TIMESTAMP();
@@ -577,10 +539,16 @@ void lynxNetStream::redeye_process_logon_packet_from_lynx(uint8_t *buf)
 
     // Send to network
 	send_net_packet(buf, size+2);
+
+	// Send this lynx the rest of the logon packets from other clients
+	if (msg == 0) {
+		fnSystem.delay(LOGON_PACKET_DELAY);
+		redeye_send_logon_packets();
+	}
 }
 
 
-/* redeye_process_logon_packet_from_lynx
+/* redeye_process_game_packet_from_lynx
  *
  *
  * game = (buf_stream[4]+(buf_stream[5]<<8));
@@ -605,52 +573,21 @@ void lynxNetStream::redeye_process_game_packet_from_lynx(uint8_t *buf)
 		case 0:		// looks like we're back in logon, someone pressed restart?
 			if (buf[0] == 5) {
 				redeye_reset_game();
-				Debug_printf("NETSTREAM OUT redeye %04X %s --> re-entering logon mode\n", game.game_id, *game.name);
+				Debug_printf("REDEYE (lynx) %04X %s --> re-entering logon mode\n", game.game_id, *game.name);
 				return;
 			}
 		break;
 
 		case 3: 	// data packet
-			//game.state.plr_data_recv[seq][plr] = 1;
-			//memcpy(game.state.seq_plr_data[seq][plr], buf, size);
-			Debug_printf("NETSTREAM OUT redeye %04X %s --> DATA player %d data for seq %d - header:%02X, data size:%d\n", game.game_id, *game.name, plr, seq, buf[1], size);
-
-			// Deal with sequence switch, all data received and we see a new seq #?
-			/*if (redeye_check_data_recv()) {
-				for (uint8_t i=0; i<game.num_players; i++) {
-					// clear player data received status for current sequence
-					game.state.plr_data_recv[0][i] = 0;
-					game.state.plr_data_recv[1][i] = 0;
-				}
-				Debug_printf("NETSTREAM OUT redeye %04X %s --> SEQ full sequence starting\n", game.game_id, *game.name);
-			}*/
+			Debug_printf("REDEYE (lynx) %04X %s --> DATA player %d data for seq %d - header:%02X, data size:%d\n", game.game_id, *game.name, plr, seq, buf[1], size);
 			break;
 
 		case 4:		// SendData Req
-			Debug_printf("NETSTREAM OUT redeye %04X %s --> REQUEST player %d data for seq %d, header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
-
-			// do we have the data?
-			/*if (game.state.plr_data_recv[seq][plr]) {
-				Debug_printf("NETSTREAM OUT redeye %04X %s --> REQUEST player %d data for seq %d, fujinet has it - header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
-
-   				// Send to network
-				//netStream.beginPacket(netstream_host_ip, netstream_port); // remote IP and port
-				//netStream.write(game.state.seq_plr_data[seq][plr], game.state.seq_plr_data[seq][plr][0]+2);
-				//netStream.endPacket();
-				//return;
-			}
-			else {
-				Debug_printf("NETSTREAM OUT redeye %04X %s --> REQUEST player %d data for seq %d, fujinet does not have it - header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
-			}*/
+			Debug_printf("REDEYE (lynx) %04X %s --> REQUEST player %d data for seq %d, header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
 			break;
 
 		case 5:		// Master resend req
-			Debug_printf("NETSTREAM OUT redeye %04X %s --> MASTER RESEND REQUEST, plr_mask:%d, header:%02X\n", game.game_id, *game.name, plr, seq, buf[2], buf[1]);
-
-			//if (redeye_valid_sequence_data(seq, buf[2])) {				// fujinet can send if we have valid data
-				//redeye_master_resend_data_to_lynx(seq, buf[2]);
-				//return;
-			//}
+			Debug_printf("REDEYE (lynx) %04X %s --> MASTER RESEND REQUEST, plr_mask:%d, header:%02X\n", game.game_id, *game.name, plr, seq, buf[2], buf[1]);
 			break;
 	}
 
@@ -660,22 +597,18 @@ void lynxNetStream::redeye_process_game_packet_from_lynx(uint8_t *buf)
 
 
 bool lynxNetStream::redeye_validate_packet(uint8_t *buf, uint8_t bufsize)
-{  
+{
 	// Sanity checks on packet size
 	if ((bufsize < 3) || (bufsize > 10) || (buf[0]+2 != bufsize)) {
-		Debug_printf("NETSTREAM bad packet size - bufsize:%d buf[0]:%d\n", bufsize, buf[0]);
+		Debug_printf("REDEYE bad packet size - bufsize:%d buf[0]:%d\n", bufsize, buf[0]);
 		return false;
 	}
-
-	//if ((buf[0]+2) != bufsize)
- 	//	return false;
-
 
 	// validate the checksum
 	if (redeye_checksum(buf))
 		return true;
 	else {
-		Debug_println("NETSTREAM bad checksum");
+		Debug_println("REDEYE bad checksum");
 		return false;
 	}
 }
@@ -688,39 +621,22 @@ bool lynxNetStream::redeye_validate_packet(uint8_t *buf, uint8_t bufsize)
 void lynxNetStream::redeye_reset_game()
 {
     uint8_t i;
-    
+
     // clear game info
     game.game_id = 0;
     game.remap_game_id = 0;
     game.max_players = 0;
     game.num_players = 0;
-    game.my_player_num = 0;
-    
+    game.my_player_num = 255;
+
     // reset game state
     game.state.logon = true;
+    game.logon_state.active_mask = 0;
     for(i=0; i<MAX_PLAYERS; i++) {
-	    game.state.plr_data_recv[0][i] = 0;
-	    game.state.plr_data_recv[1][i] = 0;
-	    game.state.seq_plr_data[0][i][0] = 0;
-	    game.state.seq_plr_data[1][i][0] = 0;
+		game.logon_state.player_present[i] = 0;
+	    game.logon_state.cached_mask[i] = 0;
+	    game.logon_state.logon_rx_timer[i] = 0;
     }
-}
-
-
-/* check_data_recv
- *
- * Check that all players have sent data for full sequence
- */
-bool lynxNetStream::redeye_check_data_recv()
-{
-	uint8_t i;
-
-	for(i=0; i<game.num_players; i++) {
-	if ((game.state.plr_data_recv[0][i] == 0) || (game.state.plr_data_recv[1][i] == 0))
-		return(false);
-	}
-
-	return(true);
 }
 
 
@@ -730,7 +646,7 @@ bool lynxNetStream::redeye_check_logon_state()
 	if (game.state.logon_timer > 0) {
 		uint64_t now = GET_TIMESTAMP();
 		#ifdef REDEYE_DEBUG
-		Debug_printf("NETSTREAM GAME %04X %s --> game start countdown: %d\n", game.game_id, *game.name, (now - game.state.logon_timer));
+		Debug_printf("REDEYE %04X %s --> game start countdown: %d\n", game.game_id, *game.name, (now - game.state.logon_timer));
 		#endif
 
 		if ((now - game.state.logon_timer) > LOGON_DELAY) {
@@ -743,12 +659,109 @@ bool lynxNetStream::redeye_check_logon_state()
 				SYSTEM_BUS.change_baud(31250);
 			}
 
-		    Debug_printf("NETSTREAM GAME %04X %s --> Logon ended, players: %d\n", game.game_id, *game.name, game.num_players);
+		    Debug_printf("REDEYE %04X %s --> Logon ended, players: %d\n", game.game_id, *game.name, game.num_players);
 			return(false);
 		}
 	}
 
+	// Time out any inactive players, but only if we are in logon mode
+	if (game.state.logon)
+		redeye_check_for_inactive_players();
+
 	return(true);
 }
+
+
+/* redeye_send_logon_to_lynx
+ *
+ * Send a logon packet to Lynx over serial for this player number
+ *
+ * DEBUG LOGON PKT: 05 00 00 01 13 13 D3 - Msg=00 Plrs=0 countdown=0
+ */
+void lynxNetStream::redeye_send_logon_to_lynx(uint8_t pnum)
+{
+	uint8_t buf[7];		// temporary logon packet buffer
+
+	// Build the logon packet
+	buf[0] = 0x05;								// payload size
+	buf[1] = 0x00;								// message type - logon packet
+	buf[2] = redeye_active_players_mask();		// active player mask
+	buf[3] = pnum;								// player number
+	buf[4] = game.game_id & 0xFF;				// game ID
+	buf[5] = (game.game_id >> 8) & 0xFF;
+	buf[6] = 0;									// checksum
+
+	// calculate the checksum
+	redeye_recalculate_checksum(&buf[0]);
+
+	// Send to Lynx UART
+	_comlynx_bus->wait_for_idle();
+	SYSTEM_BUS.write(&buf, 7);
+	//if (!SYSTEM_BUS.isBoIP())
+		SYSTEM_BUS.read(&buf, 7); 				// discard physical ComLynx UART echo
+}
+
+
+/* redeye_active_players_mask
+ *
+ * Build the active players mask to send in logon packet
+ */
+uint8_t lynxNetStream::redeye_active_players_mask()
+{
+	uint8_t mask = 0;
+
+	for (int i = 0; i < 8; i++) {
+    	if (game.logon_state.player_present[i])
+        	mask |= (1 << i);
+	}
+
+	game.logon_state.active_mask = mask;
+	return(mask);
+}
+
+
+void lynxNetStream::redeye_send_logon_packets()
+{
+	uint8_t i;
+
+	// Set the initial player to start sending logon packets from
+	i = game.my_player_num + 1;
+	if (i >= game.num_players)
+		i = 0;
+
+	while(i != game.my_player_num) {
+		if (game.logon_state.player_present[i]) {
+			//if (game.num_players > 1)
+			//	Debug_printf("REDEYE (fn) %04X %s --> sending logon packet for player %d, active_mask:%d cached_mask:%d\n", game.game_id, *game.name, i, game.logon_state.active_mask, game.logon_state.cached_mask[i]);
+			redeye_send_logon_to_lynx(i);
+			fnSystem.delay(LOGON_PACKET_DELAY);
+		}
+
+		i++;
+		if (i >= game.num_players)
+			i = 0;
+	}
+}
+
+
+void lynxNetStream::redeye_check_for_inactive_players()
+{
+	uint8_t i;
+
+
+	for(i=0; i<game.max_players; i++) {
+		if (game.logon_state.player_present[i]) {
+			if ((GET_TIMESTAMP() - game.logon_state.logon_rx_timer[i]) > PLAYER_INACTIVE) {
+				Debug_printf("REDEYE %04X %s --> removing inactive player %d\n", game.game_id, *game.name, i);
+				game.logon_state.player_present[i] = 0;
+				game.logon_state.cached_mask[i] = 0;
+				game.num_players--;
+			}
+		}
+	}
+
+	game.logon_state.active_mask = redeye_active_players_mask();
+}
+
 
 #endif /* BUILD_LYNX */
