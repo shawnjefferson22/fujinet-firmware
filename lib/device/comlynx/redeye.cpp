@@ -370,7 +370,7 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 
 			// collision with my player number? Need to relay to lynx for player collision handling
 			if (pnum == game.my_player_num) {
-				if (GET_TIMESTAMP() - game.logon_state.collision_timer < COLLISION_BACKOFF) {
+				if ((GET_TIMESTAMP() - game.logon_state.collision_timer) < COLLISION_BACKOFF) {
 					Debug_printf("REDEYE (net)  %04X %s --> Logon collision with my player number %d, but backoff timer not expired\n", game.game_id, *game.name, pnum);
 					return;
 				}
@@ -379,7 +379,7 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 				game.logon_state.collision_timer = GET_TIMESTAMP();
 				break;		// relay logon packet to lynx for collision handling
 			}
-			
+
 			if (game.num_players < plrs) {
 				Debug_printf("REDEYE (net)  %04X %s --> Logon new player %d, players:%d num_players:%d\n", game.game_id, *game.name, pnum, plrs, game.num_players);
 				game.num_players = plrs;
@@ -390,6 +390,7 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 
 		case 2:
 			Debug_printf("REDEYE (net)  %04X %s --> Game starting in %d\n", game.game_id, *game.name, countdown);
+			game.num_players = plrs;
 
             if (game.state.logon_timer == 0)
 				game.state.logon_timer = GET_TIMESTAMP();
@@ -402,7 +403,7 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 	}
 
     // Send to Lynx UART
-    _comlynx_bus->wait_for_idle();
+	SYSTEM_BUS.wait_for_idle();
     SYSTEM_BUS.write(buf, size+2);
     //if (!SYSTEM_BUS.isBoIP())
         SYSTEM_BUS.read(buf, size+2); 		// discard physical ComLynx UART echo
@@ -456,7 +457,7 @@ void lynxNetStream::redeye_process_game_packet_from_net(uint8_t *buf)
 	}
 
     // Send to Lynx UART
-    _comlynx_bus->wait_for_idle();
+    SYSTEM_BUS.wait_for_idle();
     SYSTEM_BUS.write(buf, size);
     //if (!SYSTEM_BUS.isBoIP())
         SYSTEM_BUS.read(buf, size); 		// discard physical ComLynx UART echo
@@ -496,14 +497,14 @@ void lynxNetStream::redeye_process_logon_packet_from_lynx(uint8_t *buf)
 				game.game_id = gid;
                 uint8_t i = redeye_find_game(game.game_id);
 				if (i == 255) {
-					Debug_printf("REDEYE couldn't find game %04X in game list\n", game.game_id);
+					Debug_printf("REDEYE (lynx) couldn't find game %04X in game list\n", game.game_id);
 					return;
 				}
 
 				game.max_players = game_list[i].max_players;
 				game.name = &game_list[i].name;
                 game.num_players = 1;
-				Debug_printf("REDEYE new game %04X %s\n", game.game_id, *game.name);
+				Debug_printf("REDEYE (lynx) new game %04X %s\n", game.game_id, *game.name);
 			}
 
 			// Set my player number
@@ -527,12 +528,14 @@ void lynxNetStream::redeye_process_logon_packet_from_lynx(uint8_t *buf)
 		case 2:
 			Debug_printf("REDEYE (lynx) %04X %s --> Game starting in %d\n", game.game_id, *game.name, countdown);
 
+			game.num_players = plrs;
+
             if (game.state.logon_timer == 0)
 				game.state.logon_timer = GET_TIMESTAMP();
 			break;
 	}
 
-	// Should we remap the game id? Set it back to 0xFFFF for lynx
+	// Should we remap the game id for server?
 	if (game.remap_game_id) {
 		redeye_remap_game_id(buf, game.remap_game_id);
 	}
@@ -695,7 +698,7 @@ void lynxNetStream::redeye_send_logon_to_lynx(uint8_t pnum)
 	redeye_recalculate_checksum(&buf[0]);
 
 	// Send to Lynx UART
-	_comlynx_bus->wait_for_idle();
+	SYSTEM_BUS.wait_for_idle();
 	SYSTEM_BUS.write(&buf, 7);
 	//if (!SYSTEM_BUS.isBoIP())
 		SYSTEM_BUS.read(&buf, 7); 				// discard physical ComLynx UART echo
@@ -726,7 +729,7 @@ void lynxNetStream::redeye_send_logon_packets()
 
 	// Set the initial player to start sending logon packets from
 	i = game.my_player_num + 1;
-	if (i >= game.num_players)
+	if (i >= MAX_PLAYERS)
 		i = 0;
 
 	while(i != game.my_player_num) {
@@ -738,7 +741,7 @@ void lynxNetStream::redeye_send_logon_packets()
 		}
 
 		i++;
-		if (i >= game.num_players)
+		if (i >= MAX_PLAYERS)
 			i = 0;
 	}
 }
@@ -749,13 +752,13 @@ void lynxNetStream::redeye_check_for_inactive_players()
 	uint8_t i;
 
 
-	for(i=0; i<game.max_players; i++) {
+	for(i=0; i<MAX_PLAYERS; i++) {
 		if (game.logon_state.player_present[i]) {
 			if ((GET_TIMESTAMP() - game.logon_state.logon_rx_timer[i]) > PLAYER_INACTIVE) {
 				Debug_printf("REDEYE %04X %s --> removing inactive player %d\n", game.game_id, *game.name, i);
 				game.logon_state.player_present[i] = 0;
 				game.logon_state.cached_mask[i] = 0;
-				game.num_players--;
+				//game.num_players--;
 			}
 		}
 	}

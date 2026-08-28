@@ -16,14 +16,14 @@ typedef struct LOGON_STATE_T
 		uint8_t active_mask;					        // active player mask we're tracking
 		uint8_t player_present[MAX_PLAYERS];	// player is actually present
 		uint8_t cached_mask[MAX_PLAYERS];		  // what players actually sent us (for debugging)
-		uint64_t logon_rx_timer[MAX_PLAYERS];	// time we last heard from a player (in milliseconds)
-    uint64_t collision_timer;           
+		int64_t logon_rx_timer[MAX_PLAYERS];	// time we last heard from a player (in milliseconds)
+    int64_t collision_timer;           
 } LOGON_STATE_T;
 
 typedef struct GAME_STATE_T
 {
 	  bool logon;
-    uint64_t logon_timer;
+    int64_t logon_timer;
 } GAME_STATE_T;
 
 typedef struct GAME_T
