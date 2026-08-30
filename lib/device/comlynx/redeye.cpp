@@ -364,8 +364,8 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 	switch(msg) {
 		case 0:			// logon annouce packet
 			// track logon state
-			game.logon_state.player_present[pnum] = 1;
-			game.logon_state.cached_mask[pnum] = plrs;
+			game.logon_state.player_present[pnum] = true;
+			game.logon_state.cached_mask[pnum] = buf[3];
 			game.logon_state.logon_rx_timer[pnum] = GET_TIMESTAMP();
 
 			// collision with my player number? Need to relay to lynx for player collision handling
@@ -381,7 +381,7 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
 			}
 
 			if (game.num_players < plrs) {
-				Debug_printf("REDEYE (net)  %04X %s --> Logon new player %d, players:%d num_players:%d\n", game.game_id, *game.name, pnum, plrs, game.num_players);
+				Debug_printf("REDEYE (net)  %04X %s --> Logon new player %d, players:%d old num_players:%d\n", game.game_id, *game.name, pnum, plrs, game.num_players);
 				game.num_players = plrs;
 			}
 
@@ -515,13 +515,13 @@ void lynxNetStream::redeye_process_logon_packet_from_lynx(uint8_t *buf)
 
 			// Set number of players
 			if (game.num_players < plrs) {
-				Debug_printf("REDEYE (lynx) %04X %s --> Logon new player %d, plrs: %d, num_players: %d\n", game.game_id, *game.name, pnum, plrs, game.num_players);
+				Debug_printf("REDEYE (lynx) %04X %s --> Logon new player %d, plrs: %d, old num_players: %d\n", game.game_id, *game.name, pnum, plrs, game.num_players);
 				game.num_players = plrs;
 			}
 
 			// track logon state
 			game.logon_state.player_present[pnum] = 1;
-			game.logon_state.cached_mask[pnum] = plrs;
+			game.logon_state.cached_mask[pnum] = buf[3];
 			game.logon_state.logon_rx_timer[pnum] = GET_TIMESTAMP();
 			break;
 
@@ -603,7 +603,9 @@ bool lynxNetStream::redeye_validate_packet(uint8_t *buf, uint8_t bufsize)
 {
 	// Sanity checks on packet size
 	if ((bufsize < 3) || (bufsize > 10) || (buf[0]+2 != bufsize)) {
+		#ifdef REDEYE_DEBUG
 		Debug_printf("REDEYE bad packet size - bufsize:%d buf[0]:%d\n", bufsize, buf[0]);
+		#endif
 		return false;
 	}
 
@@ -611,7 +613,9 @@ bool lynxNetStream::redeye_validate_packet(uint8_t *buf, uint8_t bufsize)
 	if (redeye_checksum(buf))
 		return true;
 	else {
-		Debug_println("REDEYE bad checksum");
+		#ifdef REDEYE_DEBUG
+		//Debug_println("REDEYE bad checksum");
+		#endif
 		return false;
 	}
 }
@@ -685,23 +689,29 @@ void lynxNetStream::redeye_send_logon_to_lynx(uint8_t pnum)
 {
 	uint8_t buf[7];		// temporary logon packet buffer
 
+
 	// Build the logon packet
 	buf[0] = 0x05;								// payload size
 	buf[1] = 0x00;								// message type - logon packet
-	buf[2] = redeye_active_players_mask();		// active player mask
-	buf[3] = pnum;								// player number
+	buf[2] = pnum;								// player number
+	//buf[2] = redeye_active_players_mask();		// active player mask
+	buf[3] = game.logon_state.cached_mask[pnum];
 	buf[4] = game.game_id & 0xFF;				// game ID
 	buf[5] = (game.game_id >> 8) & 0xFF;
 	buf[6] = 0;									// checksum
 
 	// calculate the checksum
 	redeye_recalculate_checksum(&buf[0]);
+	//if ((redeye_checksum(&buf[0])) == false) {
+	//	Debug_printf("REDEYE %04X %s --> ERROR: logon packet re-checksum failed for player %d\n", game.game_id, *game.name, pnum);
+	//	return;
+	//}
 
 	// Send to Lynx UART
 	SYSTEM_BUS.wait_for_idle();
-	SYSTEM_BUS.write(&buf, 7);
+	SYSTEM_BUS.write(&buf[0], 7);
 	//if (!SYSTEM_BUS.isBoIP())
-		SYSTEM_BUS.read(&buf, 7); 				// discard physical ComLynx UART echo
+		SYSTEM_BUS.read(&buf[0], 7); 				// discard physical ComLynx UART echo
 }
 
 
@@ -734,8 +744,10 @@ void lynxNetStream::redeye_send_logon_packets()
 
 	while(i != game.my_player_num) {
 		if (game.logon_state.player_present[i]) {
-			//if (game.num_players > 1)
-			//	Debug_printf("REDEYE (fn) %04X %s --> sending logon packet for player %d, active_mask:%d cached_mask:%d\n", game.game_id, *game.name, i, game.logon_state.active_mask, game.logon_state.cached_mask[i]);
+			#ifdef REDEYE_DEBUG
+				if (game.num_players > 1)
+					Debug_printf("REDEYE (fn) %04X %s --> sending logon packet for player %d, active_mask:%0X cached_mask:%0X\n", game.game_id, *game.name, i, game.logon_state.active_mask, game.logon_state.cached_mask[i]);
+			#endif
 			redeye_send_logon_to_lynx(i);
 			fnSystem.delay(LOGON_PACKET_DELAY);
 		}

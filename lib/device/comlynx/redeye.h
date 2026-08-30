@@ -3,12 +3,12 @@
 
 
 // RedEye Game handling
-#define MAX_PLAYERS	16				    // the maximum redeye players supported
-#define RE_BUFSIZE  32        		// only really need 16 bytes, and in practice games rarely use more than 6
-#define LOGON_DELAY 140*1000  		// logon countdown timer (us to ms)
-#define PLAYER_INACTIVE 500*1000	// tolerance of not receiving a player logon packet before removing, (us to ms)
-#define COLLISION_BACKOFF 300*1000  // time to let collision resolve itself
-#define LOGON_PACKET_DELAY 7		  // delay between logon packets in ms
+#define MAX_PLAYERS	16				      // the maximum redeye players supported
+#define RE_BUFSIZE  32        		  // only really need 16 bytes, and in practice games rarely use more than 6
+#define LOGON_DELAY 140*1000  		  // logon countdown timer (us to ms)
+#define PLAYER_INACTIVE 600*1000	  // tolerance of not receiving a player logon packet before removing, (us to ms)
+#define COLLISION_BACKOFF 600*1000  // time to let collision resolve itself
+#define LOGON_PACKET_DELAY 7		    // delay between logon packets in ms
 
 
 typedef struct LOGON_STATE_T
