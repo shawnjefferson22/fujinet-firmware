@@ -41,16 +41,17 @@ bool systemBus::wait_for_idle()
         current = GET_TIMESTAMP();
         dur = current - start;
 
-        // Did we get any data in the FIFO while waiting?
-        if (_port->available() > 0)
-            return false;
+        // Did we get any data in the FIFO while waiting? Just discard it
+        if (SYSTEM_BUS.available() > 0) {
+            SYSTEM_BUS.read();
+            start = GET_TIMESTAMP();
+            //return false;
+        }
 
     } while (dur < COMLYNX_IDLE_TIME);
 
     // Must have been idle at least IDLE_TIME to get here
     return true;
-
-    //fnSystem.yield();         // not sure if we need to do this, from old function - SJ
 }
 
 bool systemBus::netstreamActive() const

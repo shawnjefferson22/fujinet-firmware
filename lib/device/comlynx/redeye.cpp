@@ -69,7 +69,7 @@ GAME_LIST_T game_list[] = {
 void lynxNetStream::process_redeye_net_packet(uint8_t *buf, size_t len)
 {
 	// bad packet length?
-	if ((len <= 2) || (len >= 10))
+	if ((len <= 2) || (len >= 8))
 		return;
 
 #ifdef DEBUG_NETSTREAM
@@ -89,7 +89,8 @@ void lynxNetStream::process_redeye_net_packet(uint8_t *buf, size_t len)
 
 void lynxNetStream::comlynx_handle_redeye_netstream() {
 
-	redeye_check_logon_state();
+	if (game.state.logon)
+		redeye_check_logon_state();
 
 	// Get data from network
 	int packetSize = 0;
@@ -177,21 +178,26 @@ void lynxNetStream::comlynx_handle_redeye_netstream() {
 		return;
 
 	SYSTEM_BUS.flush();
+		
+	//#ifdef DEBUG_NETSTREAM
+	Debug_printf("Netstream raw data FROM LYNX, bytes: %d\n", buf_stream_index);
+ 	util_dump_bytes(&buf_stream[0], buf_stream_index);
+ 	//#endif
 
  	// parse all packets collected from serial bus (should hopefully only be one)
  	uint16_t index = 0;
  	while (index < buf_stream_index) {
-		if (buf_stream[index] == 0) {
+		if ((buf_stream[index] == 0) || (buf_stream[index] > 6)) {	// bad packet size, skip this byte and try to find a valid packet
 			index++;
 			continue;
 		}
 		else
 			packetSize = buf_stream[index]+2;				// get the redeye packet size (this is 2 more than what the packet payload is)
 
- 		#ifdef DEBUG_NETSTREAM
-		Debug_print("Netstream Redeye FROM LYNX: ");
+ 		//#ifdef DEBUG_NETSTREAM
+		Debug_print("Netstream Redeye packet FROM LYNX: ");
  		util_dump_bytes(&buf_stream[index], packetSize);
- 		#endif
+ 		//#endif
 
  		// validate this is a good redeye packet
  		if (redeye_validate_packet(&buf_stream[index], packetSize)) {
@@ -405,8 +411,7 @@ void lynxNetStream::redeye_process_logon_packet_from_net(uint8_t *buf)
     // Send to Lynx UART
 	SYSTEM_BUS.wait_for_idle();
     SYSTEM_BUS.write(buf, size+2);
-    //if (!SYSTEM_BUS.isBoIP())
-        SYSTEM_BUS.read(buf, size+2); 		// discard physical ComLynx UART echo
+    SYSTEM_BUS.read(buf, size+2); 		// discard physical ComLynx UART echo
 }
 
 
@@ -439,13 +444,14 @@ void lynxNetStream::redeye_process_game_packet_from_net(uint8_t *buf)
 				Debug_printf("REDEYE (net)  %04X %s --> re-entering logon mode\n", game.game_id, *game.name);
 				return;
 			}
-		break;
+			break;
 
 		case 3: 	// data packet
 			Debug_printf("REDEYE (net)  %04X %s --> DATA player %d data for seq %d - header:%02X, data size:%d\n", game.game_id, *game.name, plr, seq, buf[1], size);
 			break;
 
 		case 4:		// SendData Req
+			Debug_printf("REDEYE (net) My player number: %d, game num_players: %d, plr: %d\n", game.my_player_num, game.num_players, plr);
 			Debug_printf("REDEYE (net)  %04X %s --> REQUEST player %d data for seq %d, header:%02X\n", game.game_id, *game.name, plr, seq, buf[1]);
 			break;
 
@@ -459,8 +465,7 @@ void lynxNetStream::redeye_process_game_packet_from_net(uint8_t *buf)
     // Send to Lynx UART
     SYSTEM_BUS.wait_for_idle();
     SYSTEM_BUS.write(buf, size);
-    //if (!SYSTEM_BUS.isBoIP())
-        SYSTEM_BUS.read(buf, size); 		// discard physical ComLynx UART echo
+    SYSTEM_BUS.read(buf, size); 		// discard physical ComLynx UART echo
 }
 
 
@@ -614,7 +619,7 @@ bool lynxNetStream::redeye_validate_packet(uint8_t *buf, uint8_t bufsize)
 		return true;
 	else {
 		#ifdef REDEYE_DEBUG
-		//Debug_println("REDEYE bad checksum");
+		Debug_println("REDEYE bad checksum");
 		#endif
 		return false;
 	}
@@ -702,16 +707,11 @@ void lynxNetStream::redeye_send_logon_to_lynx(uint8_t pnum)
 
 	// calculate the checksum
 	redeye_recalculate_checksum(&buf[0]);
-	//if ((redeye_checksum(&buf[0])) == false) {
-	//	Debug_printf("REDEYE %04X %s --> ERROR: logon packet re-checksum failed for player %d\n", game.game_id, *game.name, pnum);
-	//	return;
-	//}
 
 	// Send to Lynx UART
 	SYSTEM_BUS.wait_for_idle();
 	SYSTEM_BUS.write(&buf[0], 7);
-	//if (!SYSTEM_BUS.isBoIP())
-		SYSTEM_BUS.read(&buf[0], 7); 				// discard physical ComLynx UART echo
+	SYSTEM_BUS.read(&buf[0], 7); 				// discard physical ComLynx UART echo
 }
 
 

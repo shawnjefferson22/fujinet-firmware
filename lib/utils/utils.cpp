@@ -806,7 +806,7 @@ void util_dump_bytes(const uint8_t *buff, uint32_t buff_size)
             Debug_printf("%02X ", buff[k + j]);
         Debug_println("\r\n");
     }
-    Debug_println("\r\n");
+    //Debug_println("\r\n");
 }
 
 vector<string> util_tokenize(string s, char c)
