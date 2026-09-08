@@ -102,7 +102,7 @@ public:
     /**
      * @brief Wait to see if Comlynx bus is idle.
      */
-    bool wait_for_idle();
+    void wait_for_idle();
     bool netstreamActive() const;
 
     int numDevices();

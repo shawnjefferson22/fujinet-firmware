@@ -25,33 +25,26 @@ void virtualDevice::reset()
     Debug_printf("No Reset implemented for device %u\n", _devnum);
 }
 
-bool systemBus::wait_for_idle()
+void systemBus::wait_for_idle()
 {
-    int64_t start, current, dur;
+     int64_t start = GET_TIMESTAMP();
 
-    // SJ notes: we really don't need to do this unless we are in netstream mode
-    // Likely we want to just wait until the bus is "idle" for about 3 character times
-    // which is about 0.5 ms at 62500 baud 8N1
-    //
-    // Check that the bus is truly idle for the whole duration, and then we can start sending?
+    while (true)
+    {
+        if (SYSTEM_BUS.available() > 0)
+        {
+            // Drain everything currently waiting.
+            while (SYSTEM_BUS.available() > 0)
+                SYSTEM_BUS.read();
 
-    start = GET_TIMESTAMP();
-
-    do {
-        current = GET_TIMESTAMP();
-        dur = current - start;
-
-        // Did we get any data in the FIFO while waiting? Just discard it
-        if (SYSTEM_BUS.available() > 0) {
-            SYSTEM_BUS.read();
+            // Start a fresh quiet-period measurement.
             start = GET_TIMESTAMP();
-            //return false;
         }
-
-    } while (dur < COMLYNX_IDLE_TIME);
-
-    // Must have been idle at least IDLE_TIME to get here
-    return true;
+        else if ((GET_TIMESTAMP() - start) >= COMLYNX_IDLE_TIME)
+        {
+            return;
+        }
+    }
 }
 
 bool systemBus::netstreamActive() const
