@@ -73,10 +73,12 @@ public:
     void redeye_process_logon_packet_from_lynx(uint8_t *buf);
     void redeye_process_game_packet_from_lynx(uint8_t *buf);
 
-	void redeye_send_logon_to_lynx(uint8_t pnum);
-	uint8_t redeye_active_players_mask();
-	void redeye_send_logon_packets();
+    uint8_t redeye_active_players_mask();
 	void redeye_check_for_inactive_players();
+	void redeye_send_logon_to_lynx(uint8_t pnum);
+	void redeye_send_logon_packets();
+    void redeye_send_countdown_to_lynx(uint8_t countdown);
+    void redeye_send_countdown_packets();
 
     void redeye_change_baud(int baud);
 };
