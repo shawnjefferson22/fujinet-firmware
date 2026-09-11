@@ -66,7 +66,6 @@ public:
     void redeye_remap_game_id(uint8_t *buf, uint16_t remap);          // remap game_id to provide a unique game_id
     uint8_t redeye_find_game(uint16_t gid);
     bool redeye_validate_packet(uint8_t *buf, uint8_t bufsize);
-    bool redeye_check_logon_state();
 
     void redeye_process_logon_packet_from_net(uint8_t *buf);
     void redeye_process_game_packet_from_net(uint8_t *buf);
@@ -80,6 +79,7 @@ public:
     void redeye_send_countdown_to_lynx(uint8_t countdown);
     void redeye_send_countdown_packets();
 
+    void display_game_state();
     void redeye_change_baud(int baud);
 };
 

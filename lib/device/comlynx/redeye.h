@@ -11,10 +11,11 @@
 #define LOGON_DELAY 400*1000  		        // logon countdown timer in microseconds (4 ms)
 #define PLAYER_INACTIVE 1000*1000	        // tolerance of not receiving a player logon packet before removing in microseconds (1 second)
 #define COLLISION_BACKOFF 600*1000        // time to let collision resolve itself in microsecond (600 ms)
-#define LOGON_RESTART_BACKOFF 2*1000*1000 // delay time before we can re-enter logon mode in microseconds (2 seconds)
+#define LOGON_RESTART_BACKOFF 5*1000*1000 // delay time before we can re-enter logon mode in microseconds (5 seconds)
 
 #define LOGON_PACKET_DELAY 7		    // delay between logon packets in ms
-#define COUNT_PACKET_DELAY 16       // delay between countdown packets in ms
+//#define COUNT_PACKET_DELAY 16       // delay between countdown packets in ms
+#define COUNT_PACKET_DELAY 7       // delay between countdown packets in ms
 
 
 typedef struct LOGON_STATE_T
