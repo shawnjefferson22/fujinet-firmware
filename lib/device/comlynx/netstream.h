@@ -67,6 +67,11 @@ public:
     uint8_t redeye_find_game(uint16_t gid);
     bool redeye_validate_packet(uint8_t *buf, uint8_t bufsize);
 
+    void redeye_carve_net_packets(uint8_t *buf, uint8_t bytes_read);
+    void redeye_carve_lynx_packets(uint8_t *buf, uint8_t bytes_read);
+    void redeye_process_net_packet(uint8_t *buf, size_t len);
+    void redeye_process_lynx_packet(uint8_t *buf, size_t len);
+    
     void redeye_process_logon_packet_from_net(uint8_t *buf);
     void redeye_process_game_packet_from_net(uint8_t *buf);
     void redeye_process_logon_packet_from_lynx(uint8_t *buf);

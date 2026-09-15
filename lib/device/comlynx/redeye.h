@@ -16,7 +16,7 @@
 #define LOGON_PACKET_DELAY 7		    // delay between logon packets in ms
 //#define COUNT_PACKET_DELAY 16       // delay between countdown packets in ms
 #define COUNT_PACKET_DELAY 7       // delay between countdown packets in ms
-
+#define GAME_STATE_DISPLAY_DELAY 5000000  // delay between game state display updates is microseconds
 
 typedef struct LOGON_STATE_T
 {
