@@ -13,10 +13,11 @@
 #define COLLISION_BACKOFF 600*1000        // time to let collision resolve itself in microsecond (600 ms)
 #define LOGON_RESTART_BACKOFF 5*1000*1000 // delay time before we can re-enter logon mode in microseconds (5 seconds)
 
-#define LOGON_PACKET_DELAY 7		    // delay between logon packets in ms
+//#define LOGON_PACKET_DELAY 7		    // delay between logon packets in ms
+#define LOGON_PACKET_DELAY 3		      // delay between logon packets in ms
 //#define COUNT_PACKET_DELAY 16       // delay between countdown packets in ms
-#define COUNT_PACKET_DELAY 7       // delay between countdown packets in ms
-#define GAME_STATE_DISPLAY_DELAY 5000000  // delay between game state display updates is microseconds
+#define COUNT_PACKET_DELAY 7          // delay between countdown packets in ms
+#define GAME_STATE_DISPLAY_DELAY 30000000  // delay between game state display updates is microseconds
 
 typedef struct LOGON_STATE_T
 {
